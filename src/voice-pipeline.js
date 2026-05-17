@@ -17,7 +17,7 @@ const fs = require("fs");
 const path = require("path");
 const Groq = require("groq-sdk");
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'placeholder' });
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // ═══════════════════════════════════════════════════════════════
 //  SPEECH-TO-TEXT (Groq Whisper)
@@ -159,7 +159,7 @@ async function ttsAPI(text, voice, speed) {
       "Authorization": `Bearer ${process.env.KOKORO_API_KEY || "not-needed"}`,
     },
     body: JSON.stringify({
-      model: "kokoro",
+      model: "model_q8f16",
       input: text,
       voice,
       speed,
