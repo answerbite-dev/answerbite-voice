@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
+const WebSocket = require("ws");
 const { createClient } = require("@supabase/supabase-js");
 const { createAgent } = require("./agent");
 const { handleCallWebhook } = require("./call-handler");
@@ -11,10 +12,10 @@ app.use(cors());
 app.use(express.json());
 
 // ── Supabase client (service role for backend) ──
-const WebSocket = require('ws');
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
+  process.env.SUPABASE_SERVICE_KEY,
+  { realtime: { transport: WebSocket } }
 );
 
 // ── Health check ──
@@ -618,4 +619,3 @@ const server = app.listen(PORT, () => {
 
 // Attach WebSocket server for real-time voice calls
 setupWebSocket(server, supabase);
-
