@@ -11,6 +11,7 @@ app.use(cors());
 app.use(express.json());
 
 // ── Supabase client (service role for backend) ──
+const WebSocket = require('ws');
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
@@ -617,3 +618,4 @@ const server = app.listen(PORT, () => {
 
 // Attach WebSocket server for real-time voice calls
 setupWebSocket(server, supabase);
+
