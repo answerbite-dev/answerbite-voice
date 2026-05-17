@@ -17,7 +17,7 @@ const fs = require("fs");
 const path = require("path");
 const Groq = require("groq-sdk");
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'placeholder' });
 
 // ═══════════════════════════════════════════════════════════════
 //  SPEECH-TO-TEXT (Groq Whisper)

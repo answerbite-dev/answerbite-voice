@@ -1,6 +1,6 @@
 const Groq = require("groq-sdk");
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'placeholder' });
 
 function createAgent(restaurant) {
   // Build the restaurant context for the system prompt
