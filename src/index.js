@@ -718,43 +718,22 @@ app.post("/api/didml/process", async (req, res) => {
     const { textToSpeech } = require("./voice-pipeline");
     const tts = await textToSpeech(aiResponse.text);
 
-    if (tts.audio) {
-      // Save TTS audio to a temp file and serve it
-      const audioId = crypto.randomUUID();
-      const fs = require("fs");
-      const audioPath = `/tmp/tts_${audioId}.wav`;
-      fs.writeFileSync(audioPath, tts.audio);
+    // Check if caller wants to end the call
+    const isGoodbye = /goodbye|bye|that'?s all|thank you|thanks|no that'?s it|nothing else/i.test(stt.text);
 
-      // Store audio path for serving
-      app._ttsFiles = app._ttsFiles || new Map();
-      app._ttsFiles.set(audioId, audioPath);
-
-      // Check if caller wants to end the call
-      const isGoodbye = /goodbye|bye|that'?s all|thank you|thanks|no that'?s it|nothing else/i.test(stt.text);
-
-      if (isGoodbye || aiResponse.action === "end_call") {
-        res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+    if (isGoodbye || aiResponse.action === "end_call") {
+      res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>${baseUrl}/api/didml/audio/${audioId}</Play>
+  <Say voice="alice">${escapeXml(aiResponse.text)}</Say>
   <Hangup/>
 </Response>`);
-        callSessions.delete(callSid);
-      } else {
-        // Continue conversation - play response then record again
-        res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Play>${baseUrl}/api/didml/audio/${audioId}</Play>
-  <Record maxLength="15" timeout="3" playBeep="false" action="${baseUrl}/api/didml/process?callSid=${callSid}" />
-  <Say voice="alice">I'm sorry, I didn't hear anything. Goodbye!</Say>
-  <Hangup/>
-</Response>`);
-      }
+      callSessions.delete(callSid);
     } else {
-      // TTS failed - use Say as fallback
       res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">${escapeXml(aiResponse.text)}</Say>
   <Record maxLength="15" timeout="3" playBeep="false" action="${baseUrl}/api/didml/process?callSid=${callSid}" />
+  <Say voice="alice">I'm sorry, I didn't hear anything. Goodbye!</Say>
   <Hangup/>
 </Response>`);
     }
