@@ -709,8 +709,8 @@ app.post("/api/didml/process", async (req, res) => {
     const aiResponse = await agent.respond(stt.text, session.history);
 
     // Update conversation history
-    session.history.push({ role: "user", content: stt.text });
-    session.history.push({ role: "assistant", content: aiResponse.text });
+    session.history.push({ role: "caller", content: stt.text });
+    session.history.push({ role: "agent", content: aiResponse.text });
 
     console.log(`🤖 AI response: "${aiResponse.text}"`);
 
