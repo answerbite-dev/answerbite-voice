@@ -608,6 +608,187 @@ async function saveReservation(reservation, callId, restaurantId, supabase) {
 }
 
 
+// ═══════════════════════════════════════════════════════════════
+//  DIDFORSALE WEBHOOK - REAL PHONE CALLS
+//  Call flow: Caller → DIDforSale → Webhook → AI → TTS → Caller
+// ═══════════════════════════════════════════════════════════════
+
+// Store conversation state per call (in-memory)
+const callSessions = new Map();
+
+// URL-encode helper for form data
+app.use(express.urlencoded({ extended: true }));
+
+// 1. Incoming call webhook - DIDforSale hits this when someone calls
+app.post("/api/didml/incoming", async (req, res) => {
+  const caller = req.body.From || req.body.Caller || "unknown";
+  const called = req.body.To || req.body.Called || "unknown";
+  const callSid = req.body.CallSid || crypto.randomUUID();
+  
+  console.log(`📞 INCOMING CALL from ${caller} to ${called} (${callSid})`);
+
+  // Find restaurant by phone number
+  const { data: restaurant } = await supabase
+    .from("restaurants")
+    .select("*")
+    .eq("phone", called)
+    .single();
+
+  const restaurantId = restaurant?.id || process.env.DEFAULT_RESTAURANT_ID;
+  const greeting = restaurant?.greeting || "Thank you for calling! How can I help you?";
+
+  // Initialize call session
+  callSessions.set(callSid, {
+    restaurantId,
+    caller,
+    history: [],
+    startedAt: new Date(),
+  });
+
+  // Log call in Supabase
+  try {
+    await supabase.from("calls").insert({
+      restaurant_id: restaurantId,
+      caller_number: caller,
+      status: "in_progress",
+      started_at: new Date().toISOString(),
+    });
+  } catch (e) { console.error("Failed to log call:", e.message); }
+
+  // Respond with DIDML - say greeting then record caller speech
+  const baseUrl = `https://${req.get("host")}`;
+  res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">${escapeXml(greeting)}</Say>
+  <Record maxLength="15" timeout="3" playBeep="false" action="${baseUrl}/api/didml/process?callSid=${callSid}" />
+  <Say voice="alice">I'm sorry, I didn't hear anything. Goodbye!</Say>
+  <Hangup/>
+</Response>`);
+});
+
+// 2. Process recorded speech - DIDforSale sends recording here
+app.post("/api/didml/process", async (req, res) => {
+  const callSid = req.query.callSid;
+  const recordingUrl = req.body.RecordingUrl;
+  const session = callSessions.get(callSid);
+
+  if (!session) {
+    res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response><Say voice="alice">Sorry, an error occurred. Please call again.</Say><Hangup/></Response>`);
+    return;
+  }
+
+  console.log(`🎤 Processing recording for call ${callSid}`);
+  const baseUrl = `https://${req.get("host")}`;
+
+  try {
+    // Download the recording from DIDforSale
+    const audioResponse = await fetch(recordingUrl);
+    const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
+
+    // STT - convert speech to text
+    const { speechToText } = require("./voice-pipeline");
+    const stt = await speechToText(audioBuffer);
+    
+    if (!stt.text || stt.text.trim().length === 0) {
+      res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">I'm sorry, I didn't catch that. Could you please repeat?</Say>
+  <Record maxLength="15" timeout="3" playBeep="false" action="${baseUrl}/api/didml/process?callSid=${callSid}" />
+  <Say voice="alice">I'm sorry, I didn't hear anything. Goodbye!</Say>
+  <Hangup/>
+</Response>`);
+      return;
+    }
+
+    console.log(`🎤 Caller said: "${stt.text}"`);
+
+    // LLM - get AI response
+    const context = await getRestaurantContext(session.restaurantId, supabase);
+    const agent = createAgent(context);
+    const aiResponse = await agent.respond(stt.text, session.history);
+
+    // Update conversation history
+    session.history.push({ role: "user", content: stt.text });
+    session.history.push({ role: "assistant", content: aiResponse.text });
+
+    console.log(`🤖 AI response: "${aiResponse.text}"`);
+
+    // TTS - convert AI response to audio and save as file
+    const { textToSpeech } = require("./voice-pipeline");
+    const tts = await textToSpeech(aiResponse.text);
+
+    if (tts.audio) {
+      // Save TTS audio to a temp file and serve it
+      const audioId = crypto.randomUUID();
+      const fs = require("fs");
+      const audioPath = `/tmp/tts_${audioId}.wav`;
+      fs.writeFileSync(audioPath, tts.audio);
+
+      // Store audio path for serving
+      app._ttsFiles = app._ttsFiles || new Map();
+      app._ttsFiles.set(audioId, audioPath);
+
+      // Check if caller wants to end the call
+      const isGoodbye = /goodbye|bye|that'?s all|thank you|thanks|no that'?s it|nothing else/i.test(stt.text);
+
+      if (isGoodbye || aiResponse.action === "end_call") {
+        res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>${baseUrl}/api/didml/audio/${audioId}</Play>
+  <Hangup/>
+</Response>`);
+        callSessions.delete(callSid);
+      } else {
+        // Continue conversation - play response then record again
+        res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>${baseUrl}/api/didml/audio/${audioId}</Play>
+  <Record maxLength="15" timeout="3" playBeep="false" action="${baseUrl}/api/didml/process?callSid=${callSid}" />
+  <Say voice="alice">I'm sorry, I didn't hear anything. Goodbye!</Say>
+  <Hangup/>
+</Response>`);
+      }
+    } else {
+      // TTS failed - use Say as fallback
+      res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">${escapeXml(aiResponse.text)}</Say>
+  <Record maxLength="15" timeout="3" playBeep="false" action="${baseUrl}/api/didml/process?callSid=${callSid}" />
+  <Hangup/>
+</Response>`);
+    }
+  } catch (err) {
+    console.error("Process error:", err);
+    res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">I'm sorry, I'm having trouble right now. Please try again later.</Say>
+  <Hangup/>
+</Response>`);
+  }
+});
+
+// 3. Serve TTS audio files
+app.get("/api/didml/audio/:id", (req, res) => {
+  const fs = require("fs");
+  const audioPath = app._ttsFiles?.get(req.params.id);
+  if (!audioPath || !fs.existsSync(audioPath)) {
+    return res.status(404).send("Audio not found");
+  }
+  res.type("audio/wav").sendFile(audioPath);
+  // Cleanup after 60 seconds
+  setTimeout(() => {
+    try { fs.unlinkSync(audioPath); } catch {}
+    app._ttsFiles?.delete(req.params.id);
+  }, 60000);
+});
+
+// XML escape helper
+function escapeXml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+
 // ── Start server with WebSocket ──
 const PORT = process.env.PORT || 3001;
 const server = app.listen(PORT, () => {
