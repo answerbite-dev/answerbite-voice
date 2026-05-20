@@ -20,16 +20,22 @@ const TTS_SPEED = parseFloat(process.env.TTS_SPEED || "1.0");
 async function speechToText(audioBuffer, options = {}) {
   const { language = "en", model = "whisper-large-v3" } = options;
   try {
-    const tempPath = path.join("/tmp", "stt_" + Date.now() + ".wav");
-    fs.writeFileSync(tempPath, audioBuffer);
-    const transcription = await groq.audio.transcriptions.create({
-      file: fs.createReadStream(tempPath),
-      model,
-      language,
-      response_format: "json",
+    const formData = new FormData();
+    formData.append("file", new Blob([audioBuffer], { type: "audio/wav" }), "audio.wav");
+    formData.append("model", model);
+    formData.append("language", language);
+    formData.append("response_format", "json");
+    const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + process.env.GROQ_API_KEY },
+      body: formData,
     });
-    try { fs.unlinkSync(tempPath); } catch {}
-    return { text: transcription.text, language: transcription.language || language };
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error("Groq STT " + response.status + ": " + errText);
+    }
+    const data = await response.json();
+    return { text: data.text, language: data.language || language };
   } catch (err) {
     console.error("STT error:", err.message);
     return { text: "", error: err.message };
