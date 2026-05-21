@@ -1,6 +1,6 @@
 const Groq = require("groq-sdk");
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'placeholder' });
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 function createAgent(restaurant) {
   // Build the restaurant context for the system prompt
@@ -40,12 +40,12 @@ CAPABILITIES:
 
 INSTRUCTIONS:
 1. Be warm, natural, and conversational. Sound like a real person, not a robot.
-2. Keep responses SHORT — 1-3 sentences max. This is a phone call, not an essay.
-3. When taking an order, confirm each item and the total before finalizing.
-4. When booking a reservation, get: name, party size, date, time, and any special requests.
-5. If you can't help with something, offer to transfer to a staff member.
-6. If the caller asks about something not on the menu, politely let them know.
-7. Always be helpful about dietary questions (gluten-free, vegan, allergies).
+2. Keep responses VERY SHORT — 1 sentence max, 15 words or less. This is a phone call.
+3. NEVER repeat the greeting. The caller has already been greeted. Jump straight to helping them.
+4. When taking an order, confirm each item briefly.
+5. When booking a reservation, get: name, party size, date, time.
+6. If you can't help, offer to transfer to staff.
+7. Be helpful about dietary questions.
 
 RESPONSE FORMAT:
 Respond with a JSON object ONLY. No other text. The JSON must have:
@@ -77,7 +77,7 @@ Set action to "transfer" when the caller wants to speak to a human.`;
           model: "llama-3.3-70b-versatile",
           messages,
           temperature: 0.7,
-          max_tokens: 500,
+          max_tokens: 150,
           response_format: { type: "json_object" },
         });
 

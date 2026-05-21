@@ -660,7 +660,7 @@ app.post("/api/didml/incoming", async (req, res) => {
   res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">${escapeXml(greeting)}</Say>
-  <Record maxLength="20" timeout="2" playBeep="false" action="${baseUrl}/api/didml/process?callSid=${callSid}" />
+  <Record maxLength="20" timeout="2" beep="false" action="${baseUrl}/api/didml/process?callSid=${callSid}" />
   <Say voice="alice">Goodbye!</Say>
   <Hangup/>
 </Response>`);
@@ -694,7 +694,7 @@ app.post("/api/didml/process", async (req, res) => {
       res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">I'm sorry, I didn't catch that. Could you please repeat?</Say>
-  <Record maxLength="20" timeout="2" playBeep="false" action="${baseUrl}/api/didml/process?callSid=${callSid}" />
+  <Record maxLength="20" timeout="2" beep="false" action="${baseUrl}/api/didml/process?callSid=${callSid}" />
   <Say voice="alice">Goodbye!</Say>
   <Hangup/>
 </Response>`);
@@ -717,52 +717,20 @@ app.post("/api/didml/process", async (req, res) => {
     // Check if caller wants to end the call
     const isGoodbye = /goodbye|bye|that'?s all|thank you|thanks|no that'?s it|nothing else/i.test(stt.text);
 
-    // Generate TTS audio
-    const { textToSpeech } = require("./voice-pipeline");
-    const tts = await textToSpeech(aiResponse.text);
-
-    if (tts.audio) {
-      const audioId = crypto.randomUUID();
-      const fs = require("fs");
-      const audioPath = `/tmp/tts_${audioId}.mp3`;
-      fs.writeFileSync(audioPath, tts.audio);
-      app._ttsFiles = app._ttsFiles || new Map();
-      app._ttsFiles.set(audioId, audioPath);
-
-      if (isGoodbye || aiResponse.action === "end_call") {
-        res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+    if (isGoodbye || aiResponse.action === "end_call") {
+      res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>${baseUrl}/api/didml/audio/${audioId}</Play>
+  <Say voice="alice">${escapeXml(aiResponse.text)}</Say>
   <Hangup/>
 </Response>`);
-        callSessions.delete(callSid);
-      } else {
-        res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Play>${baseUrl}/api/didml/audio/${audioId}</Play>
-  <Record maxLength="20" timeout="2" playBeep="false" action="${baseUrl}/api/didml/process?callSid=${callSid}" />
-  <Say voice="alice">Goodbye!</Say>
-  <Hangup/>
-</Response>`);
-      }
+      callSessions.delete(callSid);
     } else {
-      // Fallback to Say if TTS fails
-      if (isGoodbye || aiResponse.action === "end_call") {
-        res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+      res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">${escapeXml(aiResponse.text)}</Say>
+  <Record maxLength="20" timeout="2" beep="false" action="${baseUrl}/api/didml/process?callSid=${callSid}" />
   <Hangup/>
 </Response>`);
-        callSessions.delete(callSid);
-      } else {
-        res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="alice">${escapeXml(aiResponse.text)}</Say>
-  <Record maxLength="20" timeout="2" playBeep="false" action="${baseUrl}/api/didml/process?callSid=${callSid}" />
-  <Say voice="alice">Goodbye!</Say>
-  <Hangup/>
-</Response>`);
-      }
     }
   } catch (err) {
     console.error("Process error:", err);
