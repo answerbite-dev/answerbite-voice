@@ -714,10 +714,6 @@ app.post("/api/didml/process", async (req, res) => {
 
     console.log(`🤖 AI response: "${aiResponse.text}"`);
 
-    // TTS - convert AI response to audio and save as file
-    const { textToSpeech } = require("./voice-pipeline");
-    const tts = await textToSpeech(aiResponse.text);
-
     // Check if caller wants to end the call
     const isGoodbye = /goodbye|bye|that'?s all|thank you|thanks|no that'?s it|nothing else/i.test(stt.text);
 
