@@ -56,7 +56,7 @@ async function textToSpeech(text, options = {}) {
         model: TTS_MODEL,
         voice: voice,
         input: text,
-        response_format: "wav",
+        response_format: "mp3",
         speed: speed,
       }),
     });
@@ -66,7 +66,7 @@ async function textToSpeech(text, options = {}) {
     }
     const arrayBuffer = await response.arrayBuffer();
     const audio = Buffer.from(arrayBuffer);
-    return { audio, format: "wav", sampleRate: 48000, duration: null };
+    return { audio, format: "mp3", sampleRate: 48000, duration: null };
   } catch (err) {
     console.error("TTS error:", err.message);
     return { audio: null, error: err.message };
